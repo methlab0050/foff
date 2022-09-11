@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::{collections::HashMap, str::{Split, FromStr}, slice::Iter};
+use std::{collections::HashMap, str::{Split, FromStr}, fmt::{Result, Display, Debug, Formatter}};
 pub enum Hsval{
     Hs(HashMap<String, Hsval>),
     String(String),
@@ -35,18 +35,13 @@ impl Hsval {
                     lower_bound += 4;
                     upper_bound += 4;
                     scope += 1 as usize;
-                };
-                println!("\n(scope, scope_count) = ({scope}, {scope_count})");
-                
+                };                
                 if scope < scope_count {
                     key_record.resize(scope, "".to_string());
                 };
                 
                 scope_count = scope;
 
-                println!("(scope, scope_count) = ({scope}, {scope_count})");
-                print!("line ------------ \n{}\n-----------------", line);
-    
                 scope
             };
     
@@ -68,7 +63,6 @@ impl Hsval {
     
             let top_hsval = {
                 let mut top_hsval: &mut Hsval = &mut list;
-                println!("{:?}", key_record);
                 for key in &key_record {
                     match top_hsval {
                         Hsval::Hs(obj) => {
@@ -137,7 +131,7 @@ impl Hsval {
         list
     }
     
-    pub fn stringify<'a>(&self, path: &'a  str) -> String {
+    pub fn stringify<'a>(&mut self, path: &'a  str) -> String {
         let mut scope = String::new();
         let mut buf = String::new();
     
@@ -178,46 +172,79 @@ impl Hsval {
             .expect("Unable to write file");
         buf
     }
-    
-    pub fn get_obj<'a>(&mut self, keys: &mut Iter<String>) -> &mut Hsval  {
-        match keys.next() {
-            Some(key) => {
-                match self {
-                    Hsval::Hs(table) => Hsval::get_obj(
-                        table.get_mut(&key.to_string()).unwrap(),
-                        keys
-                    ),
-                    _ => self
-                }
-            },
-            None => self,
-        }
+
+    pub fn get_obj(&mut self, keys: &[String]) -> Option<&mut Hsval>  {
+        let mut some_current_obj: Option<&mut Hsval> = Some(self);
+        for key in keys{
+            match some_current_obj {
+                Some(Hsval::Hs(val)) => {
+                    some_current_obj = val.get_mut(key);
+                },
+                _ => {}
+            }
+        };
+        some_current_obj
     }
 
-    fn print(&self, scope: &mut String) {
-        match &self {
-            Hsval::Hs(vals) => {
-                print!("{{\n");
-                scope.push_str("    ");
-                for (k, v) in vals {
-                    print!("{scope}{k}:");
-                    Hsval::print(v, scope);
-                    print!(",\n");
-                }
-                scope.truncate(scope.len() - 4);
-                print!("{scope}}}");
-            },
-            Hsval::String(val) => print!("{val}"),
-            Hsval::Int(val) => print!("{val}"),
-            Hsval::Vec(val) => print!("{val:?}"),
-        };
+    fn to_jsonish(&self) -> String {
+        fn json_fmt(obj: &Hsval, buf: &mut String, scope: &mut String) {
+            match obj {
+                Hsval::Hs(vals) => {
+                    buf.push_str("{");
+                    scope.push_str("    ");
+                    for (k, v) in vals {
+                        buf.push_str(&("\n".to_owned() + scope + k + ":"));
+                        json_fmt(v, buf, scope);
+                        buf.push_str(",");
+                    }
+                    buf.pop();
+                    scope.truncate(scope.len() - 4);
+                    buf.push_str(&("\n".to_owned() + scope + "}"));
+                },
+                Hsval::String(val) => buf.push_str(val),
+                Hsval::Int(val) => buf.push_str(&val.to_string()),
+                Hsval::Vec(val) => buf.push_str(&format!("{val:?}")),
+            };
+        }
+        let mut buf = String::new();
+        json_fmt(&self, &mut buf, &mut "".to_owned());
+        buf
+    }
+
+    fn to_json(&self) -> String {
+        fn json_fmt(obj: &Hsval, buf: &mut String, scope: &mut String) {
+            match obj {
+                Hsval::Hs(vals) => {
+                    buf.push_str(&format!("{{").to_owned());
+                    scope.push_str("    ");
+                    for (k, v) in vals {
+                        buf.push_str(&format!("\n{scope}\"{k}\":").to_owned());
+                        json_fmt(v, buf, scope);
+                        buf.push_str(&format!(",").to_owned());
+                    }
+                    buf.pop();
+                    scope.truncate(scope.len() - 4);
+                    buf.push_str(&format!("\n{scope}}}").to_owned());
+                },
+                Hsval::String(val) => buf.push_str(&format!("\"{val}\"").to_owned()),
+                Hsval::Int(val) => buf.push_str(&format!("{val}").to_owned()),
+                Hsval::Vec(val) => buf.push_str(&&format!("{val:?}").to_owned()),
+            };
+        }
+        let mut buf = String::new();
+        json_fmt(&self, &mut buf, &mut "".to_owned());
+        buf
     }
 }
 
-impl std::fmt::Debug for Hsval {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut scope = "".to_string();
-        Hsval::print(&self, &mut scope);
-        write!(f, "")
+impl Display for Hsval {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{}", &self.to_json())
+    }
+}
+
+impl Debug for Hsval {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{}", &self.to_jsonish())
     }
 }
